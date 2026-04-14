@@ -18,8 +18,8 @@ app.post('/update-cookie', (req, res) => {
     const { pin, newCookie } = req.body;
     if (pin !== SECRET_PIN) return res.status(403).json({ error: "Access Denied." });
     currentCookieString = newCookie;
-    console.log("🔥 Cookie Updated.");
-    res.json({ success: true, message: "Cookie updated successfully!" });
+    console.log("🔥 RENDER: New Cookie Injected.");
+    res.json({ success: true, message: "Cookie updated!" });
 });
 
 app.post('/getlink', async (req, res) => {
@@ -27,47 +27,60 @@ app.post('/getlink', async (req, res) => {
     if (!url) return res.status(400).json({ error: "Missing URL" });
 
     try {
-        // 🧪 TEST 1: Check if the proxy can reach a simple IP checker
-        console.log("🔍 Testing Proxy Connection...");
+        const targetUrl = url.replace(new URL(url).hostname, 'www.1024terabox.com');
+        const reqHeaders = { 
+            'Cookie': currentCookieString, 
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Referer': 'https://www.1024terabox.com/main'
+        };
+
+        let html = "";
+        let connectionType = "Proxy";
+
+        // 🥊 ROUND 1: Try with Proxy
         try {
-            const ipCheck = await axios.get('https://api.ipify.org?format=json', { 
-                httpsAgent: agent, 
-                timeout: 10000 
+            console.log(`📡 Fetching with Proxy...`);
+            const response = await axios.get(targetUrl, {
+                timeout: 20000,
+                httpsAgent: agent,
+                headers: reqHeaders
             });
-            console.log(`📡 Proxy IP confirmed: ${ipCheck.data.ip}`);
-        } catch (e) {
-            console.log("❌ PROXY DIED: Proxy cannot even reach ipify. Check your DataImpulse balance/link.");
-            return res.status(502).json({ error: "Proxy is down or credentials wrong." });
+            html = response.data;
+        } catch (proxyErr) {
+            // 🥊 ROUND 2: Proxy failed or TLS disconnected. Try NAKED.
+            console.log(`⚠️ Proxy Failed (${proxyErr.message}). Retrying NAKED...`);
+            connectionType = "Naked (Render IP)";
+            
+            const fallbackResponse = await axios.get(targetUrl, {
+                timeout: 20000,
+                headers: reqHeaders
+            });
+            html = fallbackResponse.data;
         }
 
-        const targetUrl = url.replace(new URL(url).hostname, 'www.1024terabox.com');
-        
-        console.log(`📡 Fetching Terabox: ${targetUrl}`);
-        const response = await axios.get(targetUrl, {
-            timeout: 60000, // ⏳ Full 60 seconds
-            httpsAgent: agent,
-            headers: { 
-                'Cookie': currentCookieString, 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'Connection': 'keep-alive'
-            }
-        });
-
-        const html = response.data;
+        // 🎯 EXTRACT LINK
         const dlinkMatch = html.match(/\"dlink\":\"(.*?)\"/) || html.match(/\"download_url\":\"(.*?)\"/);
         
         if (dlinkMatch) {
-            console.log("✅ SUCCESS!");
-            return res.json({ success: true, dlink: dlinkMatch[1].replace(/\\/g, '') });
+            console.log(`✅ SUCCESS via ${connectionType}!`);
+            return res.json({ 
+                success: true, 
+                dlink: dlinkMatch[1].replace(/\\/g, ''),
+                method: connectionType
+            });
         }
         
-        res.status(404).json({ error: "Link not found in HTML", size: html.length });
+        // ❌ FAILED TO FIND LINK
+        const titleMatch = html.match(/<title>(.*?)<\/title>/);
+        const title = titleMatch ? titleMatch[1] : "Unknown Title";
+        console.log(`❌ No link found. Page: ${title}`);
+        res.status(404).json({ error: "No link found", page_title: title, method_used: connectionType });
 
     } catch (error) {
-        console.error("💥 ERROR:", error.message);
-        res.status(500).json({ error: "Fetch Failed", details: error.message });
+        console.error("💥 TOTAL CRASH:", error.message);
+        res.status(500).json({ error: "Total Crash", details: error.message });
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Port ${PORT} Live`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Engine Live`));
