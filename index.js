@@ -38,63 +38,50 @@ app.post('/getlink', async (req, res) => {
     let { url } = req.body;
     if (!url) return res.status(400).json({ error: "Missing URL" });
 
-    console.log(`\n========================================`);
-    console.log(`🎯 NEW REQUEST FROM WEBSITE: ${url}`);
-    
     try {
-        const urlObj = new URL(url);
-        const safeHostname = 'www.1024terabox.com';
-        const targetUrl = url.replace(urlObj.hostname, safeHostname);
+        const targetUrl = url.replace(new URL(url).hostname, 'www.1024terabox.com');
         
-        console.log(`📡 Sending request to Terabox via Mobile Proxy...`);
-        
-        const requestOptions = {
-            timeout: 15000, // ⏱️ STRICT 15 SECOND TIMEOUT
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        // Using a highly realistic User-Agent to match the phone
+        const options = {
+            timeout: 15000,
+            headers: { 
                 'Cookie': currentCookieString, 
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Referer': `https://${safeHostname}/`
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' 
             }
         };
 
-        if (agent) requestOptions.httpsAgent = agent;
+        // If you have the proxy set up on Render, this activates it
+        if (agent) options.httpsAgent = agent;
 
-        const response = await axios.get(targetUrl, requestOptions);
+        const response = await axios.get(targetUrl, options);
         const html = response.data;
         
-        console.log(`📦 Terabox responded! Page size: ${html.length} chars.`);
-
-        if (html.includes("Just a moment") || html.includes("cloudflare")) {
-            console.log("❌ FATAL: Cloudflare blocked the request.");
-        } else if (html.includes("login-btn") || html.includes("account-login")) {
-            console.log("❌ FATAL: Terabox forced a login screen.");
+        // 1. Check if Terabox threw a Captcha at Render
+        if (html.toLowerCase().includes('captcha') || html.toLowerCase().includes('verify')) {
+            return res.json({ error: "🚨 Terabox blocked Render's IP with a Captcha. You need to enable the Mobile Proxy on Render." });
         }
 
-        const titleMatch = html.match(/<title>(.*?)<\/title>/);
-        let fileName = titleMatch ? titleMatch[1].split(' - ')[0] : "Video_File.mp4";
-
-        const universalLinkMatch = html.match(/https:\/\/[a-zA-Z0-9.-]+\.download\.terabox\.com\/[^\s"'>]+/g) || 
-                                   html.match(/https:\\\/\\\/[a-zA-Z0-9.-]+\.download\.terabox\.com\\\/[^\s"'>]+/g);
+        // 2. Try to find the Direct Link
         const dlinkMatch = html.match(/\"dlink\":\"(.*?)\"/) || html.match(/\"download_url\":\"(.*?)\"/);
-
-        let finalDlink = "";
-        if (universalLinkMatch) finalDlink = universalLinkMatch[0].replace(/\\/g, '');
-        else if (dlinkMatch) finalDlink = dlinkMatch[1].replace(/\\/g, '');
-
-        if (finalDlink) {
-            console.log("🎉 SUCCESS: Video Link Extracted!");
-            return res.json({ success: true, name: fileName, dlink: finalDlink });
+        
+        if (dlinkMatch) {
+            return res.json({ success: true, dlink: dlinkMatch[1].replace(/\\/g, '') });
         }
-
-        console.log("⚠️ ERROR: No links found.");
-        res.status(404).json({ error: "Link not found or blocked." });
+        
+        // 3. X-RAY: If it fails, tell us EXACTLY what page Terabox sent back
+        const pageTitleMatch = html.match(/<title>(.*?)<\/title>/);
+        const pageTitle = pageTitleMatch ? pageTitleMatch[1] : "Unknown Page";
+        
+        res.status(404).json({ 
+            error: "Link not found in HTML.", 
+            terabox_page_title: pageTitle
+        });
 
     } catch (error) {
-        console.error("💥 AXIOS ERROR:", error.message);
-        res.status(500).json({ error: "Proxy slow or server error. Try again." });
+        res.status(500).json({ error: "Render Axios Crash: " + error.message });
     }
 });
+
 
 app.get('/', (req, res) => res.send("Engine Active."));
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server active on port ${PORT}`));
