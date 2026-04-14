@@ -27,12 +27,14 @@ app.post('/getlink', async (req, res) => {
     if (!url) return res.status(400).json({ error: "Missing URL" });
 
     try {
-        const targetUrl = url.replace(new URL(url).hostname, 'www.1024terabox.com');
+        // 🚨 THE FIX: Swapping to the lower-security mobile domain
+        const targetUrl = url.replace(new URL(url).hostname, 'www.teraboxapp.com');
+        
         const reqHeaders = { 
             'Cookie': currentCookieString, 
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Referer': 'https://www.1024terabox.com/main'
+            'Referer': 'https://www.teraboxapp.com/'
         };
 
         let html = "";
@@ -40,20 +42,20 @@ app.post('/getlink', async (req, res) => {
 
         // 🥊 ROUND 1: Try with Proxy
         try {
-            console.log(`📡 Fetching with Proxy...`);
+            console.log(`📡 Fetching ${targetUrl} with Proxy...`);
             const response = await axios.get(targetUrl, {
-                timeout: 20000,
+                timeout: 45000, 
                 httpsAgent: agent,
                 headers: reqHeaders
             });
             html = response.data;
         } catch (proxyErr) {
-            // 🥊 ROUND 2: Proxy failed or TLS disconnected. Try NAKED.
+            // 🥊 ROUND 2: Proxy failed. Try NAKED Render IP.
             console.log(`⚠️ Proxy Failed (${proxyErr.message}). Retrying NAKED...`);
             connectionType = "Naked (Render IP)";
             
             const fallbackResponse = await axios.get(targetUrl, {
-                timeout: 20000,
+                timeout: 45000,
                 headers: reqHeaders
             });
             html = fallbackResponse.data;
