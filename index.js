@@ -31,66 +31,38 @@ app.post('/update-cookie', (req, res) => {
     res.json({ success: true, message: "Cookie updated successfully!" });
 });
 
+
 app.post('/getlink', async (req, res) => {
     let { url } = req.body;
     if (!url) return res.status(400).json({ error: "Missing URL" });
 
     try {
         const targetUrl = url.replace(new URL(url).hostname, 'www.1024terabox.com');
-        
-        console.log(`\n=========================================`);
-        console.log(`📡 NEW REQUEST FROM WEBSITE: ${url}`);
-        console.log(`🛸 Sending request to Terabox...`);
-
-        // Using a highly realistic User-Agent to match the phone
-        const requestOptions = {
-            timeout: 45000, // ⏳ INCREASED TO 45 SECONDS
+        const options = {
+            timeout: 30000,
             headers: { 
                 'Cookie': currentCookieString, 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Referer': 'https://www.1024terabox.com/'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' 
             }
         };
 
-        // If you have the proxy set up on Render, this activates it
-        if (agent) requestOptions.httpsAgent = agent;
-
-        const response = await axios.get(targetUrl, requestOptions);
-        const html = response.data;
-        
-        console.log(`📦 Terabox responded! Page size: ${html.length} chars.`);
-
-        // 1. Check if Terabox threw a Captcha at Render
-        if (html.toLowerCase().includes('captcha') || html.toLowerCase().includes('verify')) {
-            console.log("❌ FATAL: Terabox blocked the request with a Captcha.");
-            return res.json({ error: "🚨 Terabox blocked Render's IP with a Captcha. You need to enable the Mobile Proxy on Render." });
+        if (agent) {
+            console.log("🛡️ Attempting connection via Proxy...");
+            options.httpsAgent = agent;
         }
 
-        // 2. Try to find the Direct Link
-        const dlinkMatch = html.match(/\"dlink\":\"(.*?)\"/) || html.match(/\"download_url\":\"(.*?)\"/);
-        
-        if (dlinkMatch) {
-            const finalDlink = dlinkMatch[1].replace(/\\/g, '');
-            console.log("🎉 SUCCESS: Video Link Extracted!");
-            return res.json({ success: true, dlink: finalDlink });
-        }
-        
-        // 3. X-RAY: If it fails, tell us EXACTLY what page Terabox sent back
-        const pageTitleMatch = html.match(/<title>(.*?)<\/title>/);
-        const pageTitle = pageTitleMatch ? pageTitleMatch[1] : "Unknown Page";
-        
-        console.log(`⚠️ ERROR: No links found. Page Title: ${pageTitle}`);
-        res.status(404).json({ 
-            error: "Link not found in HTML.", 
-            terabox_page_title: pageTitle
-        });
+        const response = await axios.get(targetUrl, options);
+        // ... (rest of the link extraction code)
 
     } catch (error) {
-        console.error("💥 AXIOS ERROR:", error.message);
-        res.status(500).json({ error: "Render Axios Crash: " + error.message });
+        // 🚨 BETTER ERROR MESSAGES
+        if (error.code === 'ECONNRESET' || error.message.includes('TLS')) {
+            return res.status(500).json({ error: "Proxy Connection Failed. Check your MOBILE_PROXY settings in Render." });
+        }
+        res.status(500).json({ error: "Axios Error: " + error.message });
     }
 });
+
 
 app.get('/', (req, res) => res.send("🚀 Engine Active."));
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server active on port ${PORT}`));
