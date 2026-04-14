@@ -1,31 +1,28 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
-const { HttpsProxyAgent } = require('https-proxy-agent'); 
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Render uses dynamic ports, so this allows Render to assign the correct one
-const PORT = process.env.PORT || 7860;
+const PORT = process.env.PORT || 10000;
+const PROXY_URL = process.env.MOBILE_PROXY; // Set this in Render Environment Variables
+const SECRET_PIN = "Linkplay2026";
 
-// 🛡️ MOBILE PROXY SETUP
-const PROXY_URL = process.env.MOBILE_PROXY;
-let agent = null;
-if (PROXY_URL) {
-    agent = new HttpsProxyAgent(PROXY_URL);
-    console.log("🛡️ SUCCESS: Mobile Proxy Agent Loaded from Secrets!");
+let currentCookieString = "ndus=YykMPXPpeHui9Lia6lhKJG1XXFqWaojJS913RSsx;";
+let agent = PROXY_URL ? new HttpsProxyAgent(PROXY_URL) : null;
+
+if (agent) {
+    console.log("🛡️ SUCCESS: Mobile Proxy Agent Loaded!");
 } else {
     console.log("⚠️ WARNING: MOBILE_PROXY secret is missing! Server will run naked.");
 }
 
-// 🧠 THE MEMORY BANK 
-let currentCookieString = "ndus=YykMPXPpeHui9Lia6lhKJG1XXFqWaojJS913RSsx;"; 
-const SECRET_PIN = "Linkplay2026"; 
-
 app.post('/update-cookie', (req, res) => {
     const { pin, newCookie } = req.body;
+    
     if (pin !== SECRET_PIN) return res.status(403).json({ error: "Access Denied." });
     if (!newCookie) return res.status(400).json({ error: "Missing new cookie." });
 
@@ -41,23 +38,32 @@ app.post('/getlink', async (req, res) => {
     try {
         const targetUrl = url.replace(new URL(url).hostname, 'www.1024terabox.com');
         
+        console.log(`\n=========================================`);
+        console.log(`📡 NEW REQUEST FROM WEBSITE: ${url}`);
+        console.log(`🛸 Sending request to Terabox...`);
+
         // Using a highly realistic User-Agent to match the phone
-        const options = {
-            timeout: 15000,
+        const requestOptions = {
+            timeout: 45000, // ⏳ INCREASED TO 45 SECONDS
             headers: { 
                 'Cookie': currentCookieString, 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Referer': 'https://www.1024terabox.com/'
             }
         };
 
         // If you have the proxy set up on Render, this activates it
-        if (agent) options.httpsAgent = agent;
+        if (agent) requestOptions.httpsAgent = agent;
 
-        const response = await axios.get(targetUrl, options);
+        const response = await axios.get(targetUrl, requestOptions);
         const html = response.data;
         
+        console.log(`📦 Terabox responded! Page size: ${html.length} chars.`);
+
         // 1. Check if Terabox threw a Captcha at Render
         if (html.toLowerCase().includes('captcha') || html.toLowerCase().includes('verify')) {
+            console.log("❌ FATAL: Terabox blocked the request with a Captcha.");
             return res.json({ error: "🚨 Terabox blocked Render's IP with a Captcha. You need to enable the Mobile Proxy on Render." });
         }
 
@@ -65,23 +71,26 @@ app.post('/getlink', async (req, res) => {
         const dlinkMatch = html.match(/\"dlink\":\"(.*?)\"/) || html.match(/\"download_url\":\"(.*?)\"/);
         
         if (dlinkMatch) {
-            return res.json({ success: true, dlink: dlinkMatch[1].replace(/\\/g, '') });
+            const finalDlink = dlinkMatch[1].replace(/\\/g, '');
+            console.log("🎉 SUCCESS: Video Link Extracted!");
+            return res.json({ success: true, dlink: finalDlink });
         }
         
         // 3. X-RAY: If it fails, tell us EXACTLY what page Terabox sent back
         const pageTitleMatch = html.match(/<title>(.*?)<\/title>/);
         const pageTitle = pageTitleMatch ? pageTitleMatch[1] : "Unknown Page";
         
+        console.log(`⚠️ ERROR: No links found. Page Title: ${pageTitle}`);
         res.status(404).json({ 
             error: "Link not found in HTML.", 
             terabox_page_title: pageTitle
         });
 
     } catch (error) {
+        console.error("💥 AXIOS ERROR:", error.message);
         res.status(500).json({ error: "Render Axios Crash: " + error.message });
     }
 });
 
-
-app.get('/', (req, res) => res.send("Engine Active."));
+app.get('/', (req, res) => res.send("🚀 Engine Active."));
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server active on port ${PORT}`));
